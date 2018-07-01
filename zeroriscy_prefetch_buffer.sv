@@ -37,9 +37,9 @@ module zeroriscy_prefetch_buffer
   output logic [31:0] addr_o,
 
 
-  // goes to instruction memory / instruction cache
+  // goes to instruction memory / instruction cache (直接与instruction memory和instruction cache交互的接口)
   output logic        instr_req_o,
-  input  logic        instr_gnt_i,
+  input  logic        instr_gnt_i,			//表示instruction memory/cache已经收到请求
   output logic [31:0] instr_addr_o,
   input  logic [31:0] instr_rdata_i,
   input  logic        instr_rvalid_i,
@@ -51,10 +51,10 @@ module zeroriscy_prefetch_buffer
   enum logic [1:0] {IDLE, WAIT_GNT, WAIT_RVALID, WAIT_ABORTED } CS, NS;
 
   logic [31:0] instr_addr_q, fetch_addr;
-  logic        addr_valid;
+  logic        addr_valid;					//当地址有效后，才会更新要读取的地址，见register部分(always_ff)
 
-  logic        fifo_valid;
-  logic        fifo_ready;
+  logic        fifo_valid;					//通知FIFO当前要读的指令地址是有效的
+  logic        fifo_ready;					//FIFO告知buffer已经准备好传输
   logic        fifo_clear;
 
   logic        valid_stored;
@@ -78,12 +78,13 @@ module zeroriscy_prefetch_buffer
 
     .clear_i               ( fifo_clear        ),
 
+	//FIFO与buffer交互的信号，当地址有效时，将要取的指令地址发给FIFO
     .in_addr_i             ( instr_addr_q      ),
     .in_rdata_i            ( instr_rdata_i     ),
     .in_valid_i            ( fifo_valid        ),
     .in_ready_o            ( fifo_ready        ),
 
-
+	//FIFO准备好后，回传给buffer
     .out_valid_o           ( valid_o           ),
     .out_ready_i           ( ready_i           ),
     .out_rdata_o           ( rdata_o           ),
@@ -97,7 +98,7 @@ module zeroriscy_prefetch_buffer
   // fetch addr
   //////////////////////////////////////////////////////////////////////////////
 
-  assign fetch_addr = {instr_addr_q[31:2], 2'b00} + 32'd4;
+  assign fetch_addr = {instr_addr_q[31:2], 2'b00} + 32'd4;	//要取的指令地址，在原来的地址的基础上实现PC+4
 
   always_comb
   begin
@@ -127,12 +128,15 @@ module zeroriscy_prefetch_buffer
         if (branch_i)
           instr_addr_o = addr_i;
 
+		//有指令请求，且FIFO准备好了，或者为分支跳转
         if (req_i & (fifo_ready | branch_i )) begin
-          instr_req_o = 1'b1;
-          addr_valid  = 1'b1;
+          instr_req_o = 1'b1;		//请求指令
+          addr_valid  = 1'b1;		//地址有效
 
-
-          if(instr_gnt_i) //~>  granted request
+		  //将状态机的状态从IDLE向WAIT_GNT和WAIT_RVALID，可以直接从IDLE到WAIT_RVALID
+		  //当没有收到来自instruction memory/cache 发过来的确认信号(表示发送的请求已经收到了)
+		  //如果收到了确认信号，则还未收到instruction memory/cache 发来的有效信号，则进入WAIT_RVALID等待
+		  if(instr_gnt_i) //~>  granted request
             NS = WAIT_RVALID;
           else begin //~> got a request but no grant
             NS = WAIT_GNT;
@@ -157,6 +161,7 @@ module zeroriscy_prefetch_buffer
           NS = WAIT_GNT;
       end // case: WAIT_GNT
 
+	  //在处理当前请求的过程中同时准备下一个请求	
       // we wait for rvalid, after that we are ready to serve a new request
       WAIT_RVALID: begin
         instr_addr_o = fetch_addr;
@@ -164,16 +169,17 @@ module zeroriscy_prefetch_buffer
         if (branch_i)
           instr_addr_o  = addr_i;
 
-
+		//因为要处理下一个请求，此处非常类似于IDLE状态的处理(向WAIT_GNT和WAIT_RVALID的过度)
         if (req_i & (fifo_ready | branch_i)) begin
           // prepare for next request
-
+		
+		  //处理当前请求
           if (instr_rvalid_i) begin
             instr_req_o = 1'b1;
             fifo_valid  = 1'b1;
             addr_valid  = 1'b1;
 
-
+			//处理下一个请求
             if (instr_gnt_i) begin
               NS = WAIT_RVALID;
             end else begin

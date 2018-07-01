@@ -45,11 +45,11 @@ module zeroriscy_if_stage
       input  logic            [31:0] instr_rdata_i,
       // Output of IF Pipeline stage
       output logic              instr_valid_id_o,      // instruction in IF/ID pipeline is valid
-      output logic       [31:0] instr_rdata_id_o,      // read instruction is sampled and sent to ID stage for decoding
-      output logic              is_compressed_id_o,    // compressed decoder thinks this is a compressed instruction
-      output logic              illegal_c_insn_id_o,   // compressed decoder thinks this is an invalid instruction
-      output logic       [31:0] pc_if_o,
-      output logic       [31:0] pc_id_o,
+      output logic       [31:0] instr_rdata_id_o,      // read instruction is sampled and sent to ID stage for decoding,发送到ID阶段的指令(如果原指令是压缩指令，那么发送到ID阶段的是解压缩后的指令，即原版32-bit指令)
+      output logic              is_compressed_id_o,    // compressed decoder thinks this is a compressed instruction，判断当前指令是否是压缩指令
+      output logic              illegal_c_insn_id_o,   // compressed decoder thinks this is an invalid instruction，判断当前指令是否是无效指令
+      output logic       [31:0] pc_if_o,			   // 其值位fetch_addr
+      output logic       [31:0] pc_id_o,			   // 其值为pc_if_o
       // Forwarding ports - control signals
       input  logic        clear_instr_valid_i,   // clear instruction valid bit in IF/ID pipe
       input  logic        pc_set_i,              // set the program counter to a new value
@@ -64,39 +64,40 @@ module zeroriscy_if_stage
       input  logic [31:0] dbg_jump_addr_i,
       // pipeline stall
       input  logic        halt_if_i,
-      input  logic        id_ready_i,
+      input  logic        id_ready_i,			//ID阶段是否准备好接受数据
       output logic        if_valid_o,
       // misc signals
       output logic        if_busy_o,             // is the IF stage busy fetching instructions?
       output logic        perf_imiss_o           // Instruction Fetch Miss
     );
 
-      // offset FSM
+      // offset FSM(有限状态机)
       enum logic[0:0] {WAIT, IDLE } offset_fsm_cs, offset_fsm_ns;
 
       logic              valid;
       logic              if_ready;
       // prefetch buffer related signals
       logic              prefetch_busy;
-      logic              branch_req;
-      logic       [31:0] fetch_addr_n;
+      logic              branch_req;			//要跳转的信号(传给buffer)
+      logic       [31:0] fetch_addr_n;			//要跳转的地址
 
+	  //IFy与buffer交互的信号，fetch_rdata中存放了有效的数据
       logic              fetch_valid;
       logic              fetch_ready;
       logic       [31:0] fetch_rdata;
       logic       [31:0] fetch_addr;
 
-      logic       [31:0] exc_pc;
+      logic       [31:0] exc_pc; 		//要执行的异常的PC地址
 
 
 
-      // exception PC selection mux
+      // exception PC selection mux (异常PC选择器，选择中断向量的地址)
       always_comb
         begin : EXC_PC_MUX
           exc_pc = '0;
 
           unique case (exc_pc_mux_i)
-            EXC_PC_ILLINSN: exc_pc = { boot_addr_i[31:8], EXC_OFF_ILLINSN };
+            EXC_PC_ILLINSN: exc_pc = { boot_addr_i[31:8], EXC_OFF_ILLINSN }; 		//boot address的最高的3个字节(31:8)指示了中断向量的基地址
             EXC_PC_ECALL:   exc_pc = { boot_addr_i[31:8], EXC_OFF_ECALL   };
             EXC_PC_IRQ:     exc_pc = { boot_addr_i[31:8], 1'b0, exc_vec_pc_mux_i[4:0], 2'b0 };
             // TODO: Add case for EXC_PC_STORE and EXC_PC_LOAD as soon as they are supported
@@ -104,7 +105,7 @@ module zeroriscy_if_stage
           endcase
         end
 
-        // fetch address selection
+        // fetch address selection (PC选择器)
         always_comb
         begin
           fetch_addr_n = '0;
@@ -113,7 +114,7 @@ module zeroriscy_if_stage
             PC_BOOT:      fetch_addr_n = {boot_addr_i[31:8], EXC_OFF_RST};
             PC_JUMP:      fetch_addr_n = jump_target_ex_i;
             PC_EXCEPTION: fetch_addr_n = exc_pc;             // set PC to exception handler
-            PC_ERET:      fetch_addr_n = exception_pc_reg_i; // PC is restored when returning from IRQ/exception
+            PC_ERET:      fetch_addr_n = exception_pc_reg_i; // PC is restored when returning from IRQ/exception (异常返回的地址)
             PC_DBG_NPC:   fetch_addr_n = dbg_jump_addr_i;    // PC is taken from debug unit
 
             default:;
@@ -182,6 +183,7 @@ module zeroriscy_if_stage
               if (fetch_valid) begin
                 valid   = 1'b1; // an instruction is ready for ID stage
 
+				//if_valid_o代表IF没有被stall，并且向ID阶段发送的数据准备好了，详见266-267
                 if (req_i && if_valid_o) begin
                   fetch_ready   = 1'b1;
                   offset_fsm_ns = WAIT;
@@ -220,9 +222,9 @@ module zeroriscy_if_stage
         //
         // since it does not matter where we decompress instructions, we do it here
         // to ease timing closure
-        logic [31:0] instr_decompressed;
-        logic        illegal_c_insn;
-        logic        instr_compressed_int;
+        logic [31:0] instr_decompressed;		//对应的是instr_rdata_id_o
+        logic        illegal_c_insn;			//对应的是illegal_c_insn_id_o
+        logic        instr_compressed_int;		//对应的是is_compressed_id_o
 
         zeroriscy_compressed_decoder compressed_decoder_i
           (
@@ -260,7 +262,7 @@ module zeroriscy_if_stage
             end
         end
 
-
+		//valid表示向ID阶段发送的数据已经准备好了，id_ready_i代表ID阶段准备好接受数据
         assign if_ready = valid & id_ready_i;
         assign if_valid_o = (~halt_if_i) & if_ready;
 

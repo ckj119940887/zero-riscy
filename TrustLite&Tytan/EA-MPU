@@ -1,0 +1,13 @@
+code execute permission: instruction fetch unit
+data read/write permission: instruction execution unit
+
+为了将code region和data region关联起来：还要考虑当前正在执行的instruction (instruction execution unit)
+
+IF阶段发送到ID阶段有关数据的信号
+// Output of IF Pipeline stage
+output logic              instr_valid_id_o,      // instruction in IF/ID pipeline is valid
+output logic       [31:0] instr_rdata_id_o,      // read instruction is sampled and sent to ID stage for decoding,发送到ID阶段的指令
+output logic              is_compressed_id_o,    // compressed decoder thinks this is a compressed instruction，判断当前指令是否是压缩指令
+output logic              illegal_c_insn_id_o,   // compressed decoder thinks this is an invalid instruction，判断当前指令是否是无效指令
+output logic       [31:0] pc_if_o,
+output logic       [31:0] pc_id_o,

@@ -21,7 +21,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-
+//详见riscv-spec-v2.2，P81-83
 import zeroriscy_defines::*;
 
 module zeroriscy_compressed_decoder
