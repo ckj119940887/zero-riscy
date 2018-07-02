@@ -64,7 +64,7 @@ module zeroriscy_if_stage
       input  logic [31:0] dbg_jump_addr_i,
       // pipeline stall
       input  logic        halt_if_i,
-      input  logic        id_ready_i,			//ID阶段是否准备好接受数据
+      input  logic        id_ready_i,			//ID阶段是否准备好接收下一条指令
       output logic        if_valid_o,
       // misc signals
       output logic        if_busy_o,             // is the IF stage busy fetching instructions?
